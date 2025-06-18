@@ -172,6 +172,7 @@ app.post("/run", async (req, res) => {
     const { browser, page } = await launchBrowser();
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const projectData = await getProjectInfo(page);
+    console.log("🔍 Scraped project data:", projectData);
     await browser.close();
     const result = await postToSheetBest(projectData);
     res.json({ message: "✅ Script completed", projectsScraped: projectData.length, ...result });
