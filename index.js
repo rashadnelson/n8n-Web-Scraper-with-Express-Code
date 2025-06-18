@@ -69,48 +69,48 @@ const fetchExistingSheetData = async () => {
 };
 
 const postToSheetBest = async (scrapedData) => {
-  const existingRows = await fetchExistingSheetData();
-
-  const normalize = (str) =>
-    str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
-
-  const seenKeys = new Set(
-    existingRows.map(
-      (row) =>
-        `${normalize(row["Project Name"])}|${normalize(row["Creator Name"])}`
-    )
-  );
-
-  const newRows = scrapedData.filter((item) => {
-    if (!item.projectName || !item.creatorName) return false;
-    const key = `${normalize(item.projectName)}|${normalize(item.creatorName)}`;
-    return !seenKeys.has(key);
-  });
-
-  if (newRows.length === 0) {
-    console.log("🟡 No new unique projects found to upload.");
-    return { uploaded: 0 };
-  }
-
-  const payload = newRows.map((item) => ({
-    Id: uuidv4(),
-    "Project Name": item.projectName,
-    "Creator Name": item.creatorName,
-    "Creator Profile": item.creatorProfile,
-    "Scraped At": new Date().toISOString(),
-  }));
-
-  try {
-    await axios.post(sheetbestUrl, payload, {
-      headers: { "Content-Type": "application/json" },
+    const existingRows = await fetchExistingSheetData();
+  
+    const normalize = (str) =>
+      str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
+  
+    const seenKeys = new Set(
+      existingRows.map(
+        (row) =>
+          `${normalize(row["Project Name"])}|${normalize(row["Creator Name"])}`
+      )
+    );
+  
+    const newRows = scrapedData.filter((item) => {
+      if (!item.projectName || !item.creatorName) return false;
+      const key = `${normalize(item.projectName)}|${normalize(item.creatorName)}`;
+      return !seenKeys.has(key);
     });
-    console.log(`✅ Uploaded ${payload.length} new rows to Google Sheet.`);
-    return { uploaded: payload.length };
-  } catch (error) {
-    console.error("❌ Upload error:", error.message);
-    return { uploaded: 0, error: error.message };
-  }
-};
+  
+    if (newRows.length === 0) {
+      console.log("🟡 No new unique projects found to upload.");
+      return { uploaded: 0 };
+    }
+  
+    const payload = newRows.map((item) => ({
+      Id: uuidv4(),
+      "Project Name": item.projectName,
+      "Creator Name": item.creatorName,
+      "Creator Profile": item.creatorProfile,
+      "Scraped At": new Date().toISOString(),
+    }));
+  
+    try {
+      await axios.post(sheetbestUrl, payload, {
+        headers: { "Content-Type": "application/json" },
+      });
+      console.log(`✅ Uploaded ${payload.length} new rows to Google Sheet.`);
+      return { uploaded: payload.length };
+    } catch (error) {
+      console.error("❌ Upload error:", error.message);
+      return { uploaded: 0, error: error.message };
+    }
+  };  
 
 // ROUTE - Reflects message on Render URL that the server is up and running
 app.get("/", (req, res) => {
