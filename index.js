@@ -110,6 +110,11 @@ const postToSheetBest = async (scrapedData) => {
   }
 };
 
+// ROUTE - Reflects message on Render URL that the server is up and running
+app.get("/", (req, res) => {
+    res.send("✅ Render server is up and responding to GET /");
+  });
+
 // ROUTE — Trigger this via HTTP POST
 app.post("/run", async (req, res) => {
   console.log("🔁 Received /run request");
