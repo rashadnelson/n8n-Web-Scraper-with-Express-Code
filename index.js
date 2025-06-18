@@ -17,7 +17,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 const URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
-const sheetbestUrl = "https://api.sheetbest.com/sheets/8450bf12-4a9d-43e5-bc50-8696cc402eb1";
+const sheetbestUrl = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
 
 // FUNCTIONS
 
@@ -92,11 +92,46 @@ const postToSheetBest = async (scrapedData) => {
       return { uploaded: 0 };
     }
   
+    // 🔁 Launch Puppeteer again to visit /about pages
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    const page = await browser.newPage();
+  
+    for (const item of newRows) {
+      try {
+        const profileUrl = item.creatorProfile?.endsWith("/about")
+          ? item.creatorProfile
+          : `${item.creatorProfile}/about`;
+  
+        await page.goto(profileUrl, { waitUntil: "domcontentloaded" });
+  
+        const bioText = await page.evaluate(() => {
+            const container = document.querySelector(".grid-col-12.grid-col-8-sm.grid-col-6-md");
+            if (!container) return "No profile container found.";
+          
+            return Array.from(container.querySelectorAll("p"))
+              .map(p => p.innerText.trim())
+              .filter(text => text.length > 0)
+              .join(" ");
+          });
+  
+        item.creatorBio = bioText;
+      } catch (err) {
+        console.error("❌ Error scraping creator bio:", err.message);
+        item.creatorBio = "Error fetching bio";
+      }
+    }
+  
+    await browser.close();
+  
     const payload = newRows.map((item) => ({
       Id: uuidv4(),
       "Project Name": item.projectName,
       "Creator Name": item.creatorName,
       "Creator Profile": item.creatorProfile,
+      "Creator Bio": item.creatorBio || "N/A",
       "Scraped At": new Date().toISOString(),
     }));
   
@@ -110,7 +145,8 @@ const postToSheetBest = async (scrapedData) => {
       console.error("❌ Upload error:", error.message);
       return { uploaded: 0, error: error.message };
     }
-  };  
+};
+   
 
 // ROUTE - Reflects message on Render URL that the server is up and running
 app.get("/", (req, res) => {
