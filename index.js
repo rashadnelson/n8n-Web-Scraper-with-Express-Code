@@ -4,8 +4,10 @@
 // IMPORTS
 import express from "express";
 import puppeteer from "puppeteer-extra";
+import puppeteerLib from "puppeteer";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 puppeteer.use(StealthPlugin());
+puppeteer.executablePath = puppeteerLib.executablePath();
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 
