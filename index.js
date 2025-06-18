@@ -55,18 +55,29 @@ const getProjectInfo = async (page) => {
 };
 
 const fetchExistingSheetData = async () => {
-  try {
-    const response = await axios.get(sheetbestUrl);
-    const rows = response.data;
-    if (!rows || rows.length === 0) {
-      console.log("ℹ️ No existing data found. First run.");
+    try {
+      console.log("📡 Starting GET from Sheet.best...");
+      const response = await axios.get(sheetbestUrl);
+      console.log("📥 Sheet.best raw response:", response.data);
+  
+      const rows = response.data;
+  
+      if (!Array.isArray(rows)) {
+        console.error("❗ Response is not an array. Check Sheet.best or sheet format.");
+        return [];
+      }
+  
+      if (rows.length === 0) {
+        console.log("ℹ️ No existing data found. First run.");
+      }
+  
+      return rows;
+    } catch (error) {
+      console.error("❌ Error fetching existing sheet data:", error.message);
+      return [];
     }
-    return rows || [];
-  } catch (error) {
-    console.error("❌ Error fetching existing sheet data:", error.message);
-    return [];
-  }
 };
+  
 
 const postToSheetBest = async (scrapedData) => {
     const existingRows = await fetchExistingSheetData();
