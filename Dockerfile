@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
   libxcomposite1 \
   libxdamage1 \
   libxrandr2 \
+  libgbm1 \                      
   xdg-utils \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
@@ -29,7 +30,7 @@ WORKDIR /app
 # Copy package.json files
 COPY package*.json ./
 
-# Install Node dependencies (this includes puppeteer)
+# Install Node dependencies (this includes puppeteer and puppeteer-extra)
 RUN npm install
 
 # Copy source code
