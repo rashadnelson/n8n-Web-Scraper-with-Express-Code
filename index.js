@@ -21,8 +21,8 @@ const sheetbestUrl = "https://api.sheetbest.com/sheets/8450bf12-4a9d-43e5-bc50-8
 
 const launchBrowser = async () => {
   const browser = await puppeteer.launch({
-    headless: false,
-    defaultViewport: false,
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
   const page = await browser.newPage();
