@@ -35,24 +35,32 @@ const launchBrowser = async () => {
 };
 
 const getProjectInfo = async (page) => {
-  const projectData = await page.evaluate(() => {
-    const projectCards = document.querySelectorAll(".js-react-proj-card");
-
-    return [...projectCards].map((card) => {
-      const projectNameEl = card.querySelector(".project-card__title");
-      const creatorNameEl = card.querySelector(".project-card__creator .do-not-visually-track");
-      const creatorLinkEl = card.querySelector(".project-card__creator");
-
-      return {
-        projectName: projectNameEl?.textContent.trim() || null,
-        creatorName: creatorNameEl?.textContent.trim() || null,
-        creatorProfile: creatorLinkEl?.href || null,
-      };
+    const projectData = await page.evaluate(() => {
+      const cardLinks = document.querySelectorAll(".project-card__title");
+  
+      return [...cardLinks].map((link) => {
+        const creatorSpan = link.querySelector("span.do-not-visually-track");
+  
+        // Get creator name from span
+        const creatorName = creatorSpan?.textContent.trim() || null;
+  
+        // Get full text and subtract creator name to isolate project name
+        const fullText = link.textContent.trim();
+        const projectName = creatorName
+          ? fullText.replace(creatorName, "").trim()
+          : fullText;
+  
+        return {
+          projectName,
+          creatorName,
+          creatorProfile: link.href || null,
+        };
+      });
     });
-  });
-
-  return projectData;
+  
+    return projectData;
 };
+  
 
 const fetchExistingSheetData = async () => {
     try {
