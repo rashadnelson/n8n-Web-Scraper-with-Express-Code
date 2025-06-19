@@ -42,7 +42,7 @@ const fetchWithBrightData = async (targetUrl) => {
 
     return response.data;
   } catch (err) {
-    console.error("\u274C Bright Data fetch failed:", err.message);
+    console.error("❌ Bright Data fetch failed:", err.message);
     throw err;
   }
 };
@@ -51,13 +51,15 @@ const extractProjectDataFromHTML = (html) => {
   const $ = cheerio.load(html);
   const projects = [];
 
-  $("a.project-card__title").each((_, el) => {
-    const link = $(el);
-    const projectName = link.text().trim();
-    const creatorProfile = link.attr("href");
+  $(".project-card-details").each((_, el) => {
+    const container = $(el);
 
-    const parent = link.closest(".project-card-details");
-    const creatorName = $(parent).find("a.project-card__creator span.do-not-visually-track").text().trim();
+    const titleAnchor = container.find("a.project-card__title");
+    const creatorAnchor = container.find("a.project-card__creator span.do-not-visually-track");
+
+    const projectName = titleAnchor.text().trim();
+    const creatorProfile = titleAnchor.attr("href");
+    const creatorName = creatorAnchor.text().trim();
 
     if (projectName && creatorName && creatorProfile) {
       projects.push({ projectName, creatorName, creatorProfile });
@@ -69,10 +71,10 @@ const extractProjectDataFromHTML = (html) => {
 
 const getProjectInfo = async () => {
   const html = await fetchWithBrightData(URL);
-  console.log("\uD83D\uDCC3 Bright Data raw HTML (first 1,000 chars):", html.slice(0, 1000));
+  console.log("📃 Bright Data raw HTML (first 1,000 chars):", html.slice(0, 1000));
 
   const projects = extractProjectDataFromHTML(html);
-  console.log("\uD83D\uDD0D Extracted projects:", projects);
+  console.log("🔍 Extracted projects:", projects);
 
   // FALLBACK: If no projects extracted, try Puppeteer
   if (projects.length === 0) {
@@ -95,10 +97,10 @@ const getProjectInfo = async () => {
 const fetchExistingSheetData = async () => {
   try {
     const response = await axios.get(sheetbestUrl);
-    console.log("\uD83D\uDCC4 Existing rows in Sheet:", response.data);
+    console.log("📄 Existing rows in Sheet:", response.data);
     return Array.isArray(response.data) ? response.data : [];
   } catch (err) {
-    console.error("\u274C Sheet.best fetch error:", err.message);
+    console.error("❌ Sheet.best fetch error:", err.message);
     return [];
   }
 };
@@ -134,7 +136,7 @@ const enrichWithCreatorBio = async (page, row) => {
 
     row.creatorBio = bio;
   } catch (err) {
-    console.error("\u274C Error loading creator bio:", err.message);
+    console.error("❌ Error loading creator bio:", err.message);
     row.creatorBio = "Error fetching bio";
   }
 };
@@ -144,7 +146,7 @@ const postToSheetBest = async (scrapedData) => {
   const newRows = scrapedData;
 
   if (newRows.length === 0) {
-    console.log("\uD83D\uDFE1 No new unique projects found to upload.");
+    console.log("🟡 No new unique projects found to upload.");
     return { uploaded: 0 };
   }
 
@@ -164,16 +166,16 @@ const postToSheetBest = async (scrapedData) => {
     "Scraped At": new Date().toISOString(),
   }));
 
-  console.log("\uD83D\uDCE4 Uploading payload to Sheet.best:", payload);
+  console.log("📤 Uploading payload to Sheet.best:", payload);
 
   try {
     await axios.post(sheetbestUrl, payload, {
       headers: { "Content-Type": "application/json" },
     });
-    console.log(`\u2705 Uploaded ${payload.length} rows`);
+    console.log(`✅ Uploaded ${payload.length} rows`);
     return { uploaded: payload.length };
   } catch (err) {
-    console.error("\u274C Upload error:", err.message);
+    console.error("❌ Upload error:", err.message);
     return { uploaded: 0, error: err.message };
   }
 };
@@ -181,24 +183,24 @@ const postToSheetBest = async (scrapedData) => {
 const app = express();
 app.use(express.json());
 
-app.get("/", (req, res) => res.send("\u2705 Server running"));
+app.get("/", (req, res) => res.send("✅ Server running"));
 
 app.post("/run", async (req, res) => {
-  console.log("\uD83D\uDD01 /run request received");
+  console.log("🔁 /run request received");
 
   try {
     const projectData = await getProjectInfo();
-    console.log("\uD83D\uDC41\uFE0F Scraped Projects:", projectData);
+    console.log("👁️ Scraped Projects:", projectData);
 
     const result = await postToSheetBest(projectData);
-    console.log("\uD83D\uDCCA Sheet.best result:", result);
+    console.log("📊 Sheet.best result:", result);
 
-    res.json({ message: "\u2705 Script completed", projectsScraped: projectData.length, ...result });
+    res.json({ message: "✅ Script completed", projectsScraped: projectData.length, ...result });
   } catch (err) {
-    console.error("\u274C Scrape error:", err.message);
+    console.error("❌ Scrape error:", err.message);
     res.status(500).json({ error: "Script failed", details: err.message });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\uD83D\uDE80 Server listening on ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server listening on ${PORT}`));
