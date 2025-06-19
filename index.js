@@ -17,8 +17,10 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 app.use(express.json());
 
-const START_URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
-const SHEETBEST_URL = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
+const START_URL =
+  "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
+const SHEETBEST_URL =
+  "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
 
 let lastResults = []; // Cache latest scrape results
 
@@ -35,12 +37,21 @@ async function launchBrowser() {
 }
 
 async function getProjectInfo(page) {
-  await page.waitForSelector(".js-react-proj-card", { timeout: 10000 });
+  // Wait up to 30s and confirm at least one project card exists
+  await page.waitForFunction(
+    () => {
+      return document.querySelectorAll(".js-react-proj-card").length > 0;
+    },
+    { timeout: 30000 }
+  );
+
   return await page.evaluate(() => {
     return [...document.querySelectorAll(".js-react-proj-card")].map((card) => {
       const titleLink = card.querySelector("a.project-card__title");
       const projectName = titleLink?.childNodes[0]?.textContent.trim() || null;
-      const creatorName = card.querySelector(".project-card__creator")?.textContent.trim() || null;
+      const creatorName =
+        card.querySelector(".project-card__creator")?.textContent.trim() ||
+        null;
       const creatorProfile = titleLink?.href || null;
 
       return { projectName, creatorName, creatorProfile };
@@ -61,7 +72,9 @@ async function fetchExistingSheetData() {
 function deduplicate(scraped, existing) {
   const normalize = (s) => s?.toLowerCase().replace(/\s+/g, " ").trim() || "";
   const seenKeys = new Set(
-    existing.map((r) => `${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`)
+    existing.map(
+      (r) => `${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`
+    )
   );
 
   return scraped.filter((item) => {
@@ -77,13 +90,19 @@ async function enrichWithCreatorBio(page, row) {
 
   try {
     await page.goto(creatorUrl, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section.js-project-creator-content", { timeout: 20000 });
+    await page.waitForSelector("section.js-project-creator-content", {
+      timeout: 20000,
+    });
 
     // Scroll until bio is visible
-    const targetSelector = "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md";
+    const targetSelector =
+      "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md";
     let found = false;
     for (let i = 0; i < 10 && !found; i++) {
-      found = await page.evaluate((sel) => !!document.querySelector(sel), targetSelector);
+      found = await page.evaluate(
+        (sel) => !!document.querySelector(sel),
+        targetSelector
+      );
       if (!found) {
         await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
         await new Promise((r) => setTimeout(r, 1000));
@@ -125,7 +144,9 @@ async function uploadToSheetBest(rows) {
 }
 
 // API ROUTES
-app.get("/", (req, res) => res.send("✅ Render server online. Use POST /scrape to run."));
+app.get("/", (req, res) =>
+  res.send("✅ Render server online. Use POST /scrape to run.")
+);
 
 app.post("/scrape", async (req, res) => {
   console.log("🔁 Received /scrape request");
