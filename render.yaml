@@ -1,7 +1,15 @@
 services:
   - type: web
     name: n8n-web-scraper-with-express-code
-    env: node
-    buildCommand: npm install
-    startCommand: node index.js
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: ohio
 
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: true
+      - key: NODE_ENV
+        value: production

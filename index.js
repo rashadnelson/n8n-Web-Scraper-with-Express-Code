@@ -1,10 +1,11 @@
 // Developed by RJ Nelson
-// Updated: 6/19/2025 — Cleaned + Updated DOM selectors
+// Updated: 6/19/2025 — Bright Data + Cheerio + Puppeteer hybrid
 
 // IMPORTS
 import puppeteer from "puppeteer-extra";
 import puppeteerLib from "puppeteer";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import cheerio from "cheerio";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import express from "express";
@@ -15,12 +16,74 @@ puppeteer.executablePath = puppeteerLib.executablePath();
 // CONFIG
 const URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
 const sheetbestUrl = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
+const BRIGHT_DATA_TOKEN = "035d375a4192a737e3950e068412c2267a13970718dee0455b68c114a86d5896";
 
 // UTILITIES
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const normalize = (str) => str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
 
-// MAIN SCRAPER
+// HYBRID: GET PROJECT LIST VIA BRIGHT DATA
+const fetchWithBrightData = async (targetUrl) => {
+  const brightDataApi = "https://api.brightdata.com/request";
+
+  const body = {
+    zone: "web_unlocker1",
+    url: targetUrl,
+    format: "raw"
+  };
+
+  try {
+    const response = await axios.post(brightDataApi, body, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${BRIGHT_DATA_TOKEN}`,
+      },
+    });
+
+    return response.data; // HTML string
+  } catch (err) {
+    console.error("❌ Bright Data fetch failed:", err.message);
+    throw err;
+  }
+};
+
+const extractProjectDataFromHTML = (html) => {
+  const $ = cheerio.load(html);
+  const projects = [];
+
+  $("a.project-card__title").each((_, el) => {
+    const link = $(el);
+    const projectName = link.text().trim();
+    const creatorProfile = link.attr("href");
+
+    const parent = link.closest(".project-card-details");
+    const creatorName = $(parent).find("a.project-card__creator span.do-not-visually-track").text().trim();
+
+    if (projectName && creatorName && creatorProfile) {
+      projects.push({ projectName, creatorName, creatorProfile });
+    }
+  });
+
+  return projects;
+};
+
+const getProjectInfo = async () => {
+  const html = await fetchWithBrightData(URL);
+  return extractProjectDataFromHTML(html);
+};
+
+// SHEET.BEST SUPPORT
+const fetchExistingSheetData = async () => {
+  try {
+    const response = await axios.get(sheetbestUrl);
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (err) {
+    console.error("❌ Sheet.best fetch error:", err.message);
+    return [];
+  }
+};
+
+// PUPPETEER: USED ONLY FOR CREATOR BIO
 const launchBrowser = async () => {
   const browser = await puppeteer.launch({
     headless: true,
@@ -34,45 +97,6 @@ const launchBrowser = async () => {
   const page = await browser.newPage();
   await page.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36");
   return { browser, page };
-};
-
-const getProjectInfo = async (page) => {
-  await page.goto(URL, { waitUntil: "networkidle2", timeout: 60000 });
-
-  // Wait for at least one project card title to appear
-  try {
-    await page.waitForSelector("a.project-card__title", { timeout: 30000 });
-  } catch (err) {
-    const html = await page.content();
-    console.error("❌ .project-card__title not found — dumping HTML snippet:");
-    console.error(html.slice(0, 1000));
-    throw err;
-  }
-
-  // Extract data using updated selectors
-  return await page.evaluate(() => {
-    const cards = document.querySelectorAll("a.project-card__title");
-
-    return [...cards].map((link) => {
-      const projectName = link?.innerText?.trim() || null;
-      const creatorProfile = link?.href || null;
-
-      const parent = link.closest(".project-card-details");
-      const creatorName = parent?.querySelector("a.project-card__creator span.do-not-visually-track")?.innerText?.trim() || null;
-
-      return { projectName, creatorName, creatorProfile };
-    });
-  });
-};
-
-const fetchExistingSheetData = async () => {
-  try {
-    const response = await axios.get(sheetbestUrl);
-    return Array.isArray(response.data) ? response.data : [];
-  } catch (err) {
-    console.error("❌ Sheet.best fetch error:", err.message);
-    return [];
-  }
 };
 
 const enrichWithCreatorBio = async (page, row) => {
@@ -99,6 +123,7 @@ const enrichWithCreatorBio = async (page, row) => {
   }
 };
 
+// SHEET.BEST UPLOAD
 const postToSheetBest = async (scrapedData) => {
   const existingRows = await fetchExistingSheetData();
 
@@ -145,7 +170,7 @@ const postToSheetBest = async (scrapedData) => {
   }
 };
 
-// EXPRESS HANDLER FOR RENDER
+// EXPRESS SERVER
 const app = express();
 app.use(express.json());
 
@@ -155,10 +180,7 @@ app.post("/run", async (req, res) => {
   console.log("🔁 /run request received");
 
   try {
-    const { browser, page } = await launchBrowser();
-    const projectData = await getProjectInfo(page);
-    await browser.close();
-
+    const projectData = await getProjectInfo(); // Bright Data + Cheerio
     const result = await postToSheetBest(projectData);
     res.json({ message: "✅ Script completed", projectsScraped: projectData.length, ...result });
   } catch (err) {

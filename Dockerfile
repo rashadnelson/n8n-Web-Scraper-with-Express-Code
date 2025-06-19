@@ -1,7 +1,5 @@
-# Use official Node base image
 FROM node:20-slim
 
-# Install necessary dependencies for Chrome
 RUN apt-get update && apt-get install -y \
   wget \
   ca-certificates \
@@ -19,25 +17,21 @@ RUN apt-get update && apt-get install -y \
   libxcomposite1 \
   libxdamage1 \
   libxrandr2 \
-  libgbm1 \                      
+  libgbm1 \
   xdg-utils \
+  chromium \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 WORKDIR /app
 
-# Copy package.json files
 COPY package*.json ./
-
-# Install Node dependencies (this includes puppeteer and puppeteer-extra)
 RUN npm install
 
-# Copy source code
 COPY . .
 
-# Expose port (Render uses $PORT)
 EXPOSE 3000
 
-# Start the app
 CMD ["node", "index.js"]

@@ -1,16 +1,18 @@
 {
   "name": "n8n-web-scraper-with-express-code",
   "version": "1.0.0",
+  "description": "Hybrid web scraper using Bright Data + Puppeteer with Express server",
+  "type": "module",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "type": "module",
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "author": "RJ Nelson",
+  "license": "MIT",
   "dependencies": {
     "axios": "^1.10.0",
+    "cheerio": "^1.0.0-rc.12",
     "express": "^5.1.0",
     "puppeteer": "^24.10.1",
     "puppeteer-extra": "^3.3.6",
