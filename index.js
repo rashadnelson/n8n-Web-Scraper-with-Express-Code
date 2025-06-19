@@ -123,16 +123,12 @@ const enrichWithCreatorBio = async (page, row) => {
 
   try {
     await page.goto(creatorUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForSelector("section.js-project-creator-content", { timeout: 20000 });
+    await page.waitForSelector("div.text-preline", { timeout: 15000 });
 
-    const elSelector = "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md";
-    await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
-    await page.waitForSelector(elSelector, { timeout: 15000 });
-
-    const bio = await page.evaluate((selector) => {
-      const el = document.querySelector(selector);
+    const bio = await page.evaluate(() => {
+      const el = document.querySelector("div.text-preline");
       return el?.innerText.trim() || "No bio found.";
-    }, elSelector);
+    });
 
     row.creatorBio = bio;
   } catch (err) {
