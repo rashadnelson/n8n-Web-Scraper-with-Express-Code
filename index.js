@@ -1,5 +1,5 @@
 // Developed by RJ Nelson
-// Updated: 6/19/2025 — Bright Data + Cheerio + Puppeteer hybrid
+// Updated: 6/19/2025 — Bright Data + Cheerio + Puppeteer hybrid (fallback debug)
 
 // IMPORTS
 import puppeteer from "puppeteer-extra";
@@ -48,7 +48,7 @@ const fetchWithBrightData = async (targetUrl) => {
 };
 
 const extractProjectDataFromHTML = (html) => {
-  const $ = cheerio.load(html); // ✅ Fixed usage
+  const $ = cheerio.load(html);
   const projects = [];
 
   $("a.project-card__title").each((_, el) => {
@@ -69,8 +69,25 @@ const extractProjectDataFromHTML = (html) => {
 
 const getProjectInfo = async () => {
   const html = await fetchWithBrightData(URL);
+  console.log("\uD83D\uDCC3 Bright Data raw HTML (first 1,000 chars):", html.slice(0, 1000));
+
   const projects = extractProjectDataFromHTML(html);
   console.log("\uD83D\uDD0D Extracted projects:", projects);
+
+  // FALLBACK: If no projects extracted, try Puppeteer
+  if (projects.length === 0) {
+    console.warn("⚠️ No projects found via Bright Data. Falling back to Puppeteer scraping.");
+
+    const { browser, page } = await launchBrowser();
+    await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+    const fallbackHTML = await page.content();
+    await browser.close();
+
+    const fallbackProjects = extractProjectDataFromHTML(fallbackHTML);
+    console.log("🔁 Puppeteer fallback extracted:", fallbackProjects);
+    return fallbackProjects;
+  }
+
   return projects;
 };
 
@@ -86,7 +103,6 @@ const fetchExistingSheetData = async () => {
   }
 };
 
-// PUPPETEER: USED ONLY FOR CREATOR BIO
 const launchBrowser = async () => {
   const browser = await puppeteer.launch({
     headless: true,
@@ -123,12 +139,9 @@ const enrichWithCreatorBio = async (page, row) => {
   }
 };
 
-// SHEET.BEST UPLOAD
 const postToSheetBest = async (scrapedData) => {
   const existingRows = await fetchExistingSheetData();
-
-  // TEMPORARY OVERRIDE: SKIP DEDUPLICATION
-  const newRows = scrapedData; // <-- DEBUG: treat all as new
+  const newRows = scrapedData;
 
   if (newRows.length === 0) {
     console.log("\uD83D\uDFE1 No new unique projects found to upload.");
@@ -165,7 +178,6 @@ const postToSheetBest = async (scrapedData) => {
   }
 };
 
-// EXPRESS SERVER
 const app = express();
 app.use(express.json());
 
