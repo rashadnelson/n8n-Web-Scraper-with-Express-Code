@@ -5,50 +5,56 @@
 import puppeteer from "puppeteer-extra";
 import puppeteerLib from "puppeteer";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
-puppeteer.use(StealthPlugin());
-puppeteer.executablePath = puppeteerLib.executablePath();
-import express from "express";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
+
+puppeteer.use(StealthPlugin());
+puppeteer.executablePath = puppeteerLib.executablePath();
 
 // CONFIG
 const URL =
   "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
 const sheetbestUrl =
   "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
-const PORT = process.env.PORT || 3000;
 
-// HELPERS
+// UTILITIES
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
 const normalize = (str) => str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
 
-// SCRAPE FUNCTIONS
-async function launchBrowser() {
+// MAIN SCRAPER
+const launchBrowser = async () => {
   const browser = await puppeteer.launch({
-    headless: "new",
+    headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    defaultViewport: { width: 1366, height: 768 },
+    defaultViewport: { width: 1280, height: 800 },
   });
+
   const page = await browser.newPage();
   await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36"
   );
-  await page.goto(URL, { waitUntil: "networkidle2", timeout: 60000 });
-  console.log("✅ Browser launched");
   return { browser, page };
-}
+};
 
-async function waitForProjectCards(page) {
-  const selector = ".js-react-proj-card";
-  const success = await page.waitForFunction(
-    (sel) => document.querySelectorAll(sel).length > 0,
-    { timeout: 30000 },
-    selector
-  );
-  return success;
-}
+const waitForCards = async (page) => {
+  try {
+    await page.waitForFunction(
+      () => document.querySelectorAll(".js-react-proj-card").length > 0,
+      { timeout: 30000 }
+    );
+  } catch (err) {
+    const html = await page.content();
+    console.error("❌ .js-react-proj-card not found — dumping HTML snippet:");
+    console.error(html.slice(0, 1000));
+    throw err;
+  }
+};
 
-async function getProjectInfo(page) {
-  await waitForProjectCards(page);
+const getProjectInfo = async (page) => {
+  await page.goto(URL, { waitUntil: "networkidle2", timeout: 60000 });
+  await waitForCards(page);
+
   return await page.evaluate(() => {
     const cards = document.querySelectorAll(".js-react-proj-card");
     return [...cards].map((card) => {
@@ -58,19 +64,25 @@ async function getProjectInfo(page) {
         card.querySelector(".project-card__creator")?.textContent.trim() ||
         null;
       const creatorProfile = titleLink?.href || null;
-
-      return {
-        projectName,
-        creatorName,
-        creatorProfile,
-      };
+      return { projectName, creatorName, creatorProfile };
     });
   });
-}
+};
 
-async function enrichWithCreatorBio(page, row) {
-  const cleanProfileUrl = row.creatorProfile?.split("?")[0];
-  const creatorUrl = `${cleanProfileUrl}/creator`;
+// DATA FILTERING
+const fetchExistingSheetData = async () => {
+  try {
+    const response = await axios.get(sheetbestUrl);
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (err) {
+    console.error("❌ Sheet.best fetch error:", err.message);
+    return [];
+  }
+};
+
+const enrichWithCreatorBio = async (page, row) => {
+  const cleanBase = row.creatorProfile?.split("?")[0];
+  const creatorUrl = `${cleanBase}/creator`;
 
   try {
     await page.goto(creatorUrl, {
@@ -81,14 +93,14 @@ async function enrichWithCreatorBio(page, row) {
       timeout: 20000,
     });
 
-    while (
-      !(await page.$(
-        "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md"
-      ))
-    ) {
-      await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
+    // Scroll until bio is visible
+    await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
+    await page.waitForSelector(
+      "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md",
+      {
+        timeout: 15000,
+      }
+    );
 
     const bio = await page.evaluate(() => {
       const el = document.querySelector(
@@ -102,34 +114,20 @@ async function enrichWithCreatorBio(page, row) {
     console.error("❌ Error loading creator bio:", err.message);
     row.creatorBio = "Error fetching bio";
   }
-}
+};
 
-// SHEET INTEGRATION
-async function fetchExistingSheetData() {
-  try {
-    const response = await axios.get(sheetbestUrl);
-    console.log("📥 Sheet.best raw response:", response.data);
-    const rows = response.data;
-    if (!Array.isArray(rows)) throw new Error("Response is not an array");
-    if (rows.length === 0) console.log("ℹ️ No existing data found. First run.");
-    return rows;
-  } catch (err) {
-    console.error("❌ Error fetching sheet data:", err.message);
-    return [];
-  }
-}
+const postToSheetBest = async (scrapedData) => {
+  const existingRows = await fetchExistingSheetData();
 
-async function uploadNewRows(scrapedData) {
-  const existing = await fetchExistingSheetData();
   const seen = new Set(
-    existing.map(
+    existingRows.map(
       (r) => `${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`
     )
   );
 
-  const newRows = scrapedData.filter((item) => {
-    if (!item.projectName || !item.creatorName) return false;
-    const key = `${normalize(item.projectName)}|${normalize(item.creatorName)}`;
+  const newRows = scrapedData.filter((r) => {
+    if (!r.projectName || !r.creatorName) return false;
+    const key = `${normalize(r.projectName)}|${normalize(r.creatorName)}`;
     return !seen.has(key);
   });
 
@@ -138,24 +136,21 @@ async function uploadNewRows(scrapedData) {
     return { uploaded: 0 };
   }
 
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  const page = await browser.newPage();
+  const { browser, page } = await launchBrowser();
 
   for (const row of newRows) {
     await enrichWithCreatorBio(page, row);
+    await sleep(1000);
   }
 
   await browser.close();
 
-  const payload = newRows.map((item) => ({
+  const payload = newRows.map((r) => ({
     Id: uuidv4(),
-    "Project Name": item.projectName,
-    "Creator Name": item.creatorName,
-    "Creator Profile": item.creatorProfile,
-    "Creator Bio": item.creatorBio || "N/A",
+    "Project Name": r.projectName,
+    "Creator Name": r.creatorName,
+    "Creator Profile": r.creatorProfile,
+    "Creator Bio": r.creatorBio || "N/A",
     "Scraped At": new Date().toISOString(),
   }));
 
@@ -169,35 +164,33 @@ async function uploadNewRows(scrapedData) {
     console.error("❌ Upload error:", err.message);
     return { uploaded: 0, error: err.message };
   }
-}
+};
 
-// SERVER FOR N8N INTEGRATION
+// HTTP HANDLERS FOR n8n / Render
+import express from "express";
 const app = express();
 app.use(express.json());
 
-app.get("/", (_, res) => {
-  res.send("✅ GET / — Server is up");
-});
+app.get("/", (req, res) => res.send("✅ Server running"));
+app.post("/run", async (req, res) => {
+  console.log("🔁 /run request received");
 
-app.post("/run", async (_, res) => {
-  console.log("🔁 Received /run request");
   try {
     const { browser, page } = await launchBrowser();
-    const projects = await getProjectInfo(page);
+    const projectData = await getProjectInfo(page);
     await browser.close();
-    console.log("🔍 Scraped project data:", projects);
-    const result = await uploadNewRows(projects);
+
+    const result = await postToSheetBest(projectData);
     res.json({
       message: "✅ Script completed",
-      projectsScraped: projects.length,
+      projectsScraped: projectData.length,
       ...result,
     });
   } catch (err) {
     console.error("❌ Scrape error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Script failed", details: err.message });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server listening on ${PORT}`));
