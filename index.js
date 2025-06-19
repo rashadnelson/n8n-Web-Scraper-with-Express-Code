@@ -1,5 +1,5 @@
 // Developed by RJ Nelson
-// Updated: 6/19/2025 (Puppeteer restored + ScraperAPI as proxy)
+// Updated: 6/19/2025 — Integrated with ScraperAPI
 
 // IMPORTS
 import puppeteer from "puppeteer-extra";
@@ -13,30 +13,29 @@ puppeteer.use(StealthPlugin());
 puppeteer.executablePath = puppeteerLib.executablePath();
 
 // CONFIG
+const SCRAPER_API_KEY = "fa08835938c77138aae12eb74b4c5b5c";
+const PROXY = `http://${SCRAPER_API_KEY}:@proxy-server.scraperapi.com:8001`;
 const URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
 const sheetbestUrl = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
-const SCRAPER_API_KEY = "fa08835938c77138aae12eb74b4c5b5c"; 
 
 // UTILITIES
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const normalize = (str) => str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
 
-// BROWSER LAUNCH
+// MAIN SCRAPER
 const launchBrowser = async () => {
   const browser = await puppeteer.launch({
     headless: true,
     args: [
-      `--proxy-server=http://${SCRAPER_API_KEY}:@proxy-server.scraperapi.com:8001`,
+      `--proxy-server=${PROXY}`,
       "--no-sandbox",
-      "--disable-setuid-sandbox",
+      "--disable-setuid-sandbox"
     ],
     defaultViewport: { width: 1280, height: 800 },
   });
 
   const page = await browser.newPage();
-  await page.setUserAgent(
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36"
-  );
+  await page.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36");
   return { browser, page };
 };
 
@@ -88,16 +87,14 @@ const enrichWithCreatorBio = async (page, row) => {
     await page.goto(creatorUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForSelector("section.js-project-creator-content", { timeout: 20000 });
 
-    // Scroll once slowly
+    const elSelector = "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md";
     await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
-    await page.waitForSelector("div.text-preline.do-not-visually-track.kds-type.kds-type-body-md", {
-      timeout: 15000,
-    });
+    await page.waitForSelector(elSelector, { timeout: 15000 });
 
-    const bio = await page.evaluate(() => {
-      const el = document.querySelector("div.text-preline.do-not-visually-track.kds-type.kds-type-body-md");
+    const bio = await page.evaluate((selector) => {
+      const el = document.querySelector(selector);
       return el?.innerText.trim() || "No bio found.";
-    });
+    }, elSelector);
 
     row.creatorBio = bio;
   } catch (err) {
@@ -152,13 +149,15 @@ const postToSheetBest = async (scrapedData) => {
   }
 };
 
-// EXPRESS SERVER
+// EXPRESS HANDLER FOR RENDER
 const app = express();
 app.use(express.json());
 
 app.get("/", (req, res) => res.send("✅ Server running"));
+
 app.post("/run", async (req, res) => {
   console.log("🔁 /run request received");
+
   try {
     const { browser, page } = await launchBrowser();
     const projectData = await getProjectInfo(page);
