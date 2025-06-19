@@ -31,7 +31,7 @@ async function launchBrowser() {
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
   const page = await browser.newPage();
-  await page.goto(START_URL, { waitUntil: "domcontentloaded" });
+  await page.goto(START_URL, { waitUntil: "networkidle2", timeout: 60000 });
   console.log("✅ Browser launched");
   return { browser, page };
 }
