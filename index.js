@@ -5,7 +5,7 @@
 import puppeteer from "puppeteer-extra";
 import puppeteerLib from "puppeteer";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
-import * as cheerio from "cheerio"; // ✅ Fixed import
+import * as cheerio from "cheerio";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import express from "express";
@@ -76,7 +76,6 @@ const getProjectInfo = async () => {
   const projects = extractProjectDataFromHTML(html);
   console.log("🔍 Extracted projects:", projects);
 
-  // FALLBACK: If no projects extracted, try Puppeteer
   if (projects.length === 0) {
     console.warn("⚠️ No projects found via Bright Data. Falling back to Puppeteer scraping.");
 
@@ -93,7 +92,6 @@ const getProjectInfo = async () => {
   return projects;
 };
 
-// SHEET.BEST SUPPORT
 const fetchExistingSheetData = async () => {
   try {
     const response = await axios.get(sheetbestUrl);
@@ -122,14 +120,10 @@ const enrichWithCreatorBio = async (page, row) => {
   const creatorUrl = `${cleanBase}/creator`;
 
   try {
-    await page.goto(creatorUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForSelector("div.text-preline", { timeout: 15000 });
+    const html = await fetchWithBrightData(creatorUrl);
+    const $ = cheerio.load(html);
 
-    const bio = await page.evaluate(() => {
-      const el = document.querySelector("div.text-preline");
-      return el?.innerText.trim() || "No bio found.";
-    });
-
+    const bio = $("div.text-preline").first().text().trim() || "No bio found.";
     row.creatorBio = bio;
   } catch (err) {
     console.error("❌ Error loading creator bio:", err.message);
