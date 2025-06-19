@@ -69,13 +69,16 @@ const extractProjectDataFromHTML = (html) => {
 
 const getProjectInfo = async () => {
   const html = await fetchWithBrightData(URL);
-  return extractProjectDataFromHTML(html);
+  const projects = extractProjectDataFromHTML(html);
+  console.log("\uD83D\uDD0D Extracted projects:", projects);
+  return projects;
 };
 
 // SHEET.BEST SUPPORT
 const fetchExistingSheetData = async () => {
   try {
     const response = await axios.get(sheetbestUrl);
+    console.log("\uD83D\uDCC4 Existing rows in Sheet:", response.data);
     return Array.isArray(response.data) ? response.data : [];
   } catch (err) {
     console.error("\u274C Sheet.best fetch error:", err.message);
@@ -124,20 +127,8 @@ const enrichWithCreatorBio = async (page, row) => {
 const postToSheetBest = async (scrapedData) => {
   const existingRows = await fetchExistingSheetData();
 
-  const seen = new Set();
-  if (Array.isArray(existingRows)) {
-    for (const r of existingRows) {
-      if (r["Project Name"] && r["Creator Name"]) {
-        seen.add(`${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`);
-      }
-    }
-  }
-
-  const newRows = scrapedData.filter((r) => {
-    if (!r.projectName || !r.creatorName) return false;
-    const key = `${normalize(r.projectName)}|${normalize(r.creatorName)}`;
-    return !seen.has(key);
-  });
+  // TEMPORARY OVERRIDE: SKIP DEDUPLICATION
+  const newRows = scrapedData; // <-- DEBUG: treat all as new
 
   if (newRows.length === 0) {
     console.log("\uD83D\uDFE1 No new unique projects found to upload.");
@@ -159,6 +150,8 @@ const postToSheetBest = async (scrapedData) => {
     "Creator Bio": r.creatorBio || "N/A",
     "Scraped At": new Date().toISOString(),
   }));
+
+  console.log("\uD83D\uDCE4 Uploading payload to Sheet.best:", payload);
 
   try {
     await axios.post(sheetbestUrl, payload, {
@@ -183,7 +176,11 @@ app.post("/run", async (req, res) => {
 
   try {
     const projectData = await getProjectInfo();
+    console.log("\uD83D\uDC41\uFE0F Scraped Projects:", projectData);
+
     const result = await postToSheetBest(projectData);
+    console.log("\uD83D\uDCCA Sheet.best result:", result);
+
     res.json({ message: "\u2705 Script completed", projectsScraped: projectData.length, ...result });
   } catch (err) {
     console.error("\u274C Scrape error:", err.message);
