@@ -38,13 +38,11 @@ async function launchBrowser() {
 
 async function getProjectInfo(page) {
   // Wait up to 30s and confirm at least one project card exists
-  await page.waitForFunction(
-    () => {
-      return document.querySelectorAll(".js-react-proj-card").length > 0;
-    },
-    { timeout: 30000 }
-  );
-
+  await page.waitForFunction(() => {
+    return [...document.querySelectorAll("a.project-card__title")]
+      .some((el) => el.textContent.trim().length > 0);
+  }, { timeout: 30000 });
+  
   return await page.evaluate(() => {
     return [...document.querySelectorAll(".js-react-proj-card")].map((card) => {
       const titleLink = card.querySelector("a.project-card__title");
