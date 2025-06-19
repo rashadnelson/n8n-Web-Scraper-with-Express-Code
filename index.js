@@ -1,45 +1,45 @@
 // Developed by RJ Nelson
-// Updated: 6/19/2025
+// Updated: 6/19/2025 (Puppeteer restored + ScraperAPI as proxy)
 
 // IMPORTS
 import puppeteer from "puppeteer-extra";
 import puppeteerLib from "puppeteer";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import axios from "axios";
-import express from "express";
 import { v4 as uuidv4 } from "uuid";
+import express from "express";
 
 puppeteer.use(StealthPlugin());
 puppeteer.executablePath = puppeteerLib.executablePath();
 
 // CONFIG
-const SCRAPER_API_KEY = "fa08835938c77138aae12eb74b4c5b5c";
-const BASE_KICKSTARTER_URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
+const URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
 const sheetbestUrl = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
+const SCRAPER_API_KEY = "fa08835938c77138aae12eb74b4c5b5c"; 
 
-const normalize = (str) =>
-  str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
-
-// UTILS
+// UTILITIES
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+const normalize = (str) => str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
 
-// BROWSER SETUP
+// BROWSER LAUNCH
 const launchBrowser = async () => {
-  return await puppeteer.launch({
+  const browser = await puppeteer.launch({
     headless: true,
     args: [
-      `--proxy-server=http://proxy.scraperapi.com:8001`,
+      `--proxy-server=http://${SCRAPER_API_KEY}:@proxy-server.scraperapi.com:8001`,
       "--no-sandbox",
       "--disable-setuid-sandbox",
     ],
     defaultViewport: { width: 1280, height: 800 },
   });
+
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36"
+  );
+  return { browser, page };
 };
 
-const getProxiedUrl = (targetUrl) =>
-  `http://api.scraperapi.com?api_key=${SCRAPER_API_KEY}&url=${encodeURIComponent(targetUrl)}&render=true`;
-
-// PROJECT SCRAPER
 const waitForCards = async (page) => {
   try {
     await page.waitForFunction(
@@ -55,10 +55,7 @@ const waitForCards = async (page) => {
 };
 
 const getProjectInfo = async (page) => {
-  await page.goto(getProxiedUrl(BASE_KICKSTARTER_URL), {
-    waitUntil: "networkidle2",
-    timeout: 60000,
-  });
+  await page.goto(URL, { waitUntil: "networkidle2", timeout: 60000 });
   await waitForCards(page);
 
   return await page.evaluate(() => {
@@ -66,38 +63,39 @@ const getProjectInfo = async (page) => {
     return [...cards].map((card) => {
       const titleLink = card.querySelector("a.project-card__title");
       const projectName = titleLink?.childNodes[0]?.textContent.trim() || null;
-      const creatorName =
-        card.querySelector(".project-card__creator")?.textContent.trim() || null;
+      const creatorName = card.querySelector(".project-card__creator")?.textContent.trim() || null;
       const creatorProfile = titleLink?.href || null;
       return { projectName, creatorName, creatorProfile };
     });
   });
 };
 
-// CREATOR BIO ENRICHMENT
+const fetchExistingSheetData = async () => {
+  try {
+    const response = await axios.get(sheetbestUrl);
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (err) {
+    console.error("❌ Sheet.best fetch error:", err.message);
+    return [];
+  }
+};
+
 const enrichWithCreatorBio = async (page, row) => {
   const cleanBase = row.creatorProfile?.split("?")[0];
   const creatorUrl = `${cleanBase}/creator`;
 
   try {
-    await page.goto(getProxiedUrl(creatorUrl), {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
-    });
+    await page.goto(creatorUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForSelector("section.js-project-creator-content", { timeout: 20000 });
 
-    await page.waitForSelector("section.js-project-creator-content", {
-      timeout: 20000,
-    });
-
+    // Scroll once slowly
     await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
     await page.waitForSelector("div.text-preline.do-not-visually-track.kds-type.kds-type-body-md", {
       timeout: 15000,
     });
 
     const bio = await page.evaluate(() => {
-      const el = document.querySelector(
-        "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md"
-      );
+      const el = document.querySelector("div.text-preline.do-not-visually-track.kds-type.kds-type-body-md");
       return el?.innerText.trim() || "No bio found.";
     });
 
@@ -108,22 +106,11 @@ const enrichWithCreatorBio = async (page, row) => {
   }
 };
 
-// SHEET POSTING
-const fetchExistingSheetData = async () => {
-  try {
-    const res = await axios.get(sheetbestUrl);
-    return Array.isArray(res.data) ? res.data : [];
-  } catch (err) {
-    console.error("❌ Error fetching sheet data:", err.message);
-    return [];
-  }
-};
-
 const postToSheetBest = async (scrapedData) => {
-  const existing = await fetchExistingSheetData();
+  const existingRows = await fetchExistingSheetData();
 
   const seen = new Set(
-    existing.map((r) => `${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`)
+    existingRows.map((r) => `${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`)
   );
 
   const newRows = scrapedData.filter((r) => {
@@ -157,7 +144,7 @@ const postToSheetBest = async (scrapedData) => {
     await axios.post(sheetbestUrl, payload, {
       headers: { "Content-Type": "application/json" },
     });
-    console.log(`✅ Uploaded ${payload.length} new rows`);
+    console.log(`✅ Uploaded ${payload.length} rows`);
     return { uploaded: payload.length };
   } catch (err) {
     console.error("❌ Upload error:", err.message);
@@ -165,20 +152,20 @@ const postToSheetBest = async (scrapedData) => {
   }
 };
 
-// EXPRESS SERVER FOR n8n / RENDER
+// EXPRESS SERVER
 const app = express();
 app.use(express.json());
 
 app.get("/", (req, res) => res.send("✅ Server running"));
 app.post("/run", async (req, res) => {
-  console.log("🔁 /run triggered");
+  console.log("🔁 /run request received");
   try {
     const { browser, page } = await launchBrowser();
     const projectData = await getProjectInfo(page);
     await browser.close();
 
     const result = await postToSheetBest(projectData);
-    res.json({ message: "✅ Scrape complete", ...result });
+    res.json({ message: "✅ Script completed", projectsScraped: projectData.length, ...result });
   } catch (err) {
     console.error("❌ Scrape error:", err.message);
     res.status(500).json({ error: "Script failed", details: err.message });
@@ -186,4 +173,4 @@ app.post("/run", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server live on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server listening on ${PORT}`));
