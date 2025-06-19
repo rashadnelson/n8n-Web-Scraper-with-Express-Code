@@ -1,5 +1,5 @@
 // Developed by RJ Nelson
-// Updated: 6/19/2025 — Integrated with ScraperAPI
+// Updated: 6/19/2025 — Cleaned + Updated DOM selectors
 
 // IMPORTS
 import puppeteer from "puppeteer-extra";
@@ -13,8 +13,6 @@ puppeteer.use(StealthPlugin());
 puppeteer.executablePath = puppeteerLib.executablePath();
 
 // CONFIG
-const SCRAPER_API_KEY = "fa08835938c77138aae12eb74b4c5b5c";
-const PROXY = `http://${SCRAPER_API_KEY}:@proxy-server.scraperapi.com:8001`;
 const URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
 const sheetbestUrl = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
 
@@ -27,7 +25,6 @@ const launchBrowser = async () => {
   const browser = await puppeteer.launch({
     headless: true,
     args: [
-      `--proxy-server=${PROXY}`,
       "--no-sandbox",
       "--disable-setuid-sandbox"
     ],
@@ -39,31 +36,30 @@ const launchBrowser = async () => {
   return { browser, page };
 };
 
-const waitForCards = async (page) => {
+const getProjectInfo = async (page) => {
+  await page.goto(URL, { waitUntil: "networkidle2", timeout: 60000 });
+
+  // Wait for at least one project card title to appear
   try {
-    await page.waitForFunction(
-      () => document.querySelectorAll(".js-react-proj-card").length > 0,
-      { timeout: 30000 }
-    );
+    await page.waitForSelector("a.project-card__title", { timeout: 30000 });
   } catch (err) {
     const html = await page.content();
-    console.error("❌ .js-react-proj-card not found — dumping HTML snippet:");
+    console.error("❌ .project-card__title not found — dumping HTML snippet:");
     console.error(html.slice(0, 1000));
     throw err;
   }
-};
 
-const getProjectInfo = async (page) => {
-  await page.goto(URL, { waitUntil: "networkidle2", timeout: 60000 });
-  await waitForCards(page);
-
+  // Extract data using updated selectors
   return await page.evaluate(() => {
-    const cards = document.querySelectorAll(".js-react-proj-card");
-    return [...cards].map((card) => {
-      const titleLink = card.querySelector("a.project-card__title");
-      const projectName = titleLink?.childNodes[0]?.textContent.trim() || null;
-      const creatorName = card.querySelector(".project-card__creator")?.textContent.trim() || null;
-      const creatorProfile = titleLink?.href || null;
+    const cards = document.querySelectorAll("a.project-card__title");
+
+    return [...cards].map((link) => {
+      const projectName = link?.innerText?.trim() || null;
+      const creatorProfile = link?.href || null;
+
+      const parent = link.closest(".project-card-details");
+      const creatorName = parent?.querySelector("a.project-card__creator span.do-not-visually-track")?.innerText?.trim() || null;
+
       return { projectName, creatorName, creatorProfile };
     });
   });
