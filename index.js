@@ -5,7 +5,7 @@
 import puppeteer from "puppeteer-extra";
 import puppeteerLib from "puppeteer";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
-import * as cheerio from "cheerio";
+import * as cheerio from "cheerio"; // ✅ Fixed import
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import express from "express";
@@ -14,12 +14,9 @@ puppeteer.use(StealthPlugin());
 puppeteer.executablePath = puppeteerLib.executablePath();
 
 // CONFIG
-const URL =
-  "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
-const sheetbestUrl =
-  "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
-const BRIGHT_DATA_TOKEN =
-  "035d375a4192a737e3950e068412c2267a13970718dee0455b68c114a86d5896";
+const URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
+const sheetbestUrl = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4533850a301d";
+const BRIGHT_DATA_TOKEN = "035d375a4192a737e3950e068412c2267a13970718dee0455b68c114a86d5896";
 
 // UTILITIES
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -32,7 +29,7 @@ const fetchWithBrightData = async (targetUrl) => {
   const body = {
     zone: "web_unlocker1",
     url: targetUrl,
-    format: "raw",
+    format: "raw"
   };
 
   try {
@@ -60,10 +57,7 @@ const extractProjectDataFromHTML = (html) => {
     const creatorProfile = link.attr("href");
 
     const parent = link.closest(".project-card-details");
-    const creatorName = $(parent)
-      .find("a.project-card__creator span.do-not-visually-track")
-      .text()
-      .trim();
+    const creatorName = $(parent).find("a.project-card__creator span.do-not-visually-track").text().trim();
 
     if (projectName && creatorName && creatorProfile) {
       projects.push({ projectName, creatorName, creatorProfile });
@@ -98,9 +92,7 @@ const launchBrowser = async () => {
   });
 
   const page = await browser.newPage();
-  await page.setUserAgent(
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36"
-  );
+  await page.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36");
   return { browser, page };
 };
 
@@ -109,16 +101,10 @@ const enrichWithCreatorBio = async (page, row) => {
   const creatorUrl = `${cleanBase}/creator`;
 
   try {
-    await page.goto(creatorUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
-    });
-    await page.waitForSelector("section.js-project-creator-content", {
-      timeout: 20000,
-    });
+    await page.goto(creatorUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForSelector("section.js-project-creator-content", { timeout: 20000 });
 
-    const elSelector =
-      "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md";
+    const elSelector = "div.text-preline.do-not-visually-track.kds-type.kds-type-body-md";
     await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
     await page.waitForSelector(elSelector, { timeout: 15000 });
 
@@ -138,11 +124,14 @@ const enrichWithCreatorBio = async (page, row) => {
 const postToSheetBest = async (scrapedData) => {
   const existingRows = await fetchExistingSheetData();
 
-  const seen = new Set(
-    existingRows.map(
-      (r) => `${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`
-    )
-  );
+  const seen = new Set();
+  if (Array.isArray(existingRows)) {
+    for (const r of existingRows) {
+      if (r["Project Name"] && r["Creator Name"]) {
+        seen.add(`${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`);
+      }
+    }
+  }
 
   const newRows = scrapedData.filter((r) => {
     if (!r.projectName || !r.creatorName) return false;
@@ -195,11 +184,7 @@ app.post("/run", async (req, res) => {
   try {
     const projectData = await getProjectInfo();
     const result = await postToSheetBest(projectData);
-    res.json({
-      message: "\u2705 Script completed",
-      projectsScraped: projectData.length,
-      ...result,
-    });
+    res.json({ message: "\u2705 Script completed", projectsScraped: projectData.length, ...result });
   } catch (err) {
     console.error("\u274C Scrape error:", err.message);
     res.status(500).json({ error: "Script failed", details: err.message });
