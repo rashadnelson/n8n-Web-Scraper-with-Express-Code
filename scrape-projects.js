@@ -21,7 +21,8 @@ const fetchWithBrightData = async (targetUrl) => {
   const body = {
     zone: "web_unlocker1",
     url: targetUrl,
-    format: "raw"
+    format: "raw",
+    render: "browser"
   };
 
   try {
