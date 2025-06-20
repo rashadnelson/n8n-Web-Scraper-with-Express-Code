@@ -22,7 +22,7 @@ const fetchWithBrightData = async (targetUrl) => {
     zone: "web_unlocker1",
     url: targetUrl,
     format: "raw",
-    render: "browser"
+    render: true
   };
 
   try {
