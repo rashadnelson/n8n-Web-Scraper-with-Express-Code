@@ -1,17 +1,11 @@
 // Developed by RJ Nelson
-// Updated: 6/19/2025 — Bright Data + Cheerio + Puppeteer hybrid (fallback debug)
+// Updated: 6/20/2025 — Split: scrape-projects.js (project + creator URLs only)
 
 // IMPORTS
-import puppeteer from "puppeteer-extra";
-import puppeteerLib from "puppeteer";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import * as cheerio from "cheerio";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import express from "express";
-
-puppeteer.use(StealthPlugin());
-puppeteer.executablePath = puppeteerLib.executablePath();
 
 // CONFIG
 const URL = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=newest";
@@ -19,13 +13,11 @@ const sheetbestUrl = "https://api.sheetbest.com/sheets/0b4bbec2-523b-4f4a-802d-4
 const BRIGHT_DATA_TOKEN = "035d375a4192a737e3950e068412c2267a13970718dee0455b68c114a86d5896";
 
 // UTILITIES
-const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const normalize = (str) => str?.toLowerCase().replace(/\s+/g, " ").trim() || "";
 
 // HYBRID: GET PROJECT LIST VIA BRIGHT DATA
 const fetchWithBrightData = async (targetUrl) => {
   const brightDataApi = "https://api.brightdata.com/request";
-
   const body = {
     zone: "web_unlocker1",
     url: targetUrl,
@@ -39,7 +31,6 @@ const fetchWithBrightData = async (targetUrl) => {
         Authorization: `Bearer ${BRIGHT_DATA_TOKEN}`,
       },
     });
-
     return response.data;
   } catch (err) {
     console.error("❌ Bright Data fetch failed:", err.message);
@@ -51,18 +42,19 @@ const extractProjectDataFromHTML = (html) => {
   const $ = cheerio.load(html);
   const projects = [];
 
-  $(".project-card-details").each((_, el) => {
-    const container = $(el);
+  // Debugging log for inspection
+  const allTitles = $("a.project-card__title");
+  console.log("🔎 Found project-card__title elements:", allTitles.length);
 
-    const titleAnchor = container.find("a.project-card__title");
-    const creatorAnchor = container.find("a.project-card__creator span.do-not-visually-track");
+  allTitles.each((_, el) => {
+    const projectName = $(el).text().trim();
+    const creatorProfileURL = $(el).attr("href");
 
-    const projectName = titleAnchor.text().trim();
-    const creatorProfile = titleAnchor.attr("href");
+    const creatorAnchor = $(el).closest(".project-card-details").find("a.project-card__creator span.do-not-visually-track");
     const creatorName = creatorAnchor.text().trim();
 
-    if (projectName && creatorName && creatorProfile) {
-      projects.push({ projectName, creatorName, creatorProfile });
+    if (projectName && creatorName && creatorProfileURL) {
+      projects.push({ projectName, creatorName, creatorProfileURL });
     }
   });
 
@@ -71,23 +63,10 @@ const extractProjectDataFromHTML = (html) => {
 
 const getProjectInfo = async () => {
   const html = await fetchWithBrightData(URL);
-  console.log("📃 Bright Data raw HTML (first 1,000 chars):", html.slice(0, 1000));
+  console.log("📃 Bright Data HTML received. Length:", html.length);
 
   const projects = extractProjectDataFromHTML(html);
   console.log("🔍 Extracted projects:", projects);
-
-  if (projects.length === 0) {
-    console.warn("⚠️ No projects found via Bright Data. Falling back to Puppeteer scraping.");
-
-    const { browser, page } = await launchBrowser();
-    await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 60000 });
-    const fallbackHTML = await page.content();
-    await browser.close();
-
-    const fallbackProjects = extractProjectDataFromHTML(fallbackHTML);
-    console.log("🔁 Puppeteer fallback extracted:", fallbackProjects);
-    return fallbackProjects;
-  }
 
   return projects;
 };
@@ -103,56 +82,27 @@ const fetchExistingSheetData = async () => {
   }
 };
 
-const launchBrowser = async () => {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    defaultViewport: { width: 1280, height: 800 },
-  });
-
-  const page = await browser.newPage();
-  await page.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36");
-  return { browser, page };
-};
-
-const enrichWithCreatorBio = async (page, row) => {
-  const cleanBase = row.creatorProfile?.split("?")[0];
-  const creatorUrl = `${cleanBase}/creator`;
-
-  try {
-    const html = await fetchWithBrightData(creatorUrl);
-    const $ = cheerio.load(html);
-
-    const bio = $("div.text-preline").first().text().trim() || "No bio found.";
-    row.creatorBio = bio;
-  } catch (err) {
-    console.error("❌ Error loading creator bio:", err.message);
-    row.creatorBio = "Error fetching bio";
-  }
-};
-
 const postToSheetBest = async (scrapedData) => {
   const existingRows = await fetchExistingSheetData();
-  const newRows = scrapedData;
+  const seen = new Set(
+    existingRows.map((r) => `${normalize(r["Project Name"])}|${normalize(r["Creator Name"])}`)
+  );
+
+  const newRows = scrapedData.filter((r) => {
+    const key = `${normalize(r.projectName)}|${normalize(r.creatorName)}`;
+    return !seen.has(key);
+  });
 
   if (newRows.length === 0) {
     console.log("🟡 No new unique projects found to upload.");
     return { uploaded: 0 };
   }
 
-  const { browser, page } = await launchBrowser();
-  for (const row of newRows) {
-    await enrichWithCreatorBio(page, row);
-    await sleep(1000);
-  }
-  await browser.close();
-
   const payload = newRows.map((r) => ({
     Id: uuidv4(),
     "Project Name": r.projectName,
     "Creator Name": r.creatorName,
-    "Creator Profile": r.creatorProfile,
-    "Creator Bio": r.creatorBio || "N/A",
+    "Creator Profile URL": r.creatorProfileURL,
     "Scraped At": new Date().toISOString(),
   }));
 
