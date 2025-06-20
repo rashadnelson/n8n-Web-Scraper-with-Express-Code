@@ -42,16 +42,14 @@ const extractProjectDataFromHTML = (html) => {
   const $ = cheerio.load(html);
   const projects = [];
 
-  // Debugging log for inspection
-  const allTitles = $("a.project-card__title");
-  console.log("🔎 Found project-card__title elements:", allTitles.length);
+  const cards = $("div.project-card-details");
 
-  allTitles.each((_, el) => {
-    const projectName = $(el).text().trim();
-    const creatorProfileURL = $(el).attr("href");
+  console.log("🔎 Found project-card-details elements:", cards.length);
 
-    const creatorAnchor = $(el).closest(".project-card-details").find("a.project-card__creator span.do-not-visually-track");
-    const creatorName = creatorAnchor.text().trim();
+  cards.each((_, el) => {
+    const projectName = $(el).find("a[href*='/projects/']").first().text().trim();
+    const creatorName = $(el).find("a.project-card__creator span.do-not-visually-track").first().text().trim();
+    const creatorProfileURL = $(el).find("a[href*='/projects/']").first().attr("href");
 
     if (projectName && creatorName && creatorProfileURL) {
       projects.push({ projectName, creatorName, creatorProfileURL });
